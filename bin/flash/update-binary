@@ -111,17 +111,11 @@ ui_print "- 开始刷机 - Flashing process started."
 ui_print " "
 
 #boot
-if [[ $ZIPFILE == *ROOT* ]] ; then
-    package_extract_file "boot_tv.img" "/dev/block/bootdevice/by-name/boot_a"
-	package_extract_file "boot_tv.img" "/dev/block/bootdevice/by-name/boot_b"
-	package_extract_file "firmware-update/dtbo_tv.img" "/dev/block/bootdevice/by-name/dtbo_a"
-	package_extract_file "firmware-update/dtbo_tv.img" "/dev/block/bootdevice/by-name/dtbo_b"
-else
-    package_extract_file "boot_official.img" "/dev/block/bootdevice/by-name/boot_a"
-	package_extract_file "boot_official.img" "/dev/block/bootdevice/by-name/boot_b"
-	package_extract_file "firmware-update/dtbo.img" "/dev/block/bootdevice/by-name/dtbo_a"
-	package_extract_file "firmware-update/dtbo.img" "/dev/block/bootdevice/by-name/dtbo_b"
-fi
+package_extract_file "boot.img" "/dev/block/bootdevice/by-name/boot_a"
+package_extract_file "boot.img" "/dev/block/bootdevice/by-name/boot_b"
+package_extract_file "firmware-update/dtbo.img" "/dev/block/bootdevice/by-name/dtbo_a"
+package_extract_file "firmware-update/dtbo.img" "/dev/block/bootdevice/by-name/dtbo_b"
+
 
 # firmware
 
