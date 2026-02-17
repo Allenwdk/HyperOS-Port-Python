@@ -63,8 +63,107 @@ class SystemModifier:
         self._replace_misound_and_biometric()
         self._fix_vndk_apex()
         self._fix_vintf_manifest()
+        
+        # 7. Apply EU Localization (if enabled/bundle provided)
+        if getattr(self.ctx, "is_port_eu_rom", False) and getattr(self.ctx, "eu_bundle", None):
+            self._apply_eu_localization()
 
         self.logger.info("System Modification Completed.")
+
+    def _apply_eu_localization(self):
+        bundle_path = Path(self.ctx.eu_bundle)
+        if not bundle_path.exists():
+            self.logger.warning(f"EU Bundle not found at {bundle_path}, skipping localization.")
+            return
+
+        self.logger.info(f"Applying EU Localization Bundle from {bundle_path}...")
+        
+        with tempfile.TemporaryDirectory(prefix="eu_bundle_") as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            
+            # 1. Extract Bundle
+            try:
+                with zipfile.ZipFile(bundle_path, 'r') as z:
+                    z.extractall(tmp_path)
+            except Exception as e:
+                self.logger.error(f"Failed to extract EU bundle: {e}")
+                return
+
+            # 2. Iterate and Smart Replace
+            # Walk through extracted files to find APKs
+            for apk_file in tmp_path.rglob("*.apk"):
+                # Get package name using aapt2
+                pkg_name = self._get_package_name(apk_file)
+                if not pkg_name:
+                    continue
+                
+                # relative path inside bundle (e.g. product/app/MiuiCamera/MiuiCamera.apk)
+                # We need to determine the root relative to the bundle structure.
+                # Assuming bundle structure mirrors system root (e.g. system/..., product/...)
+                
+                # Find matching app in Target ROM
+                # Scan common app directories in target
+                found_in_target = False
+                target_roots = [
+                    self.ctx.target_dir / "system/app",
+                    self.ctx.target_dir / "system/priv-app",
+                    self.ctx.target_dir / "product/app",
+                    self.ctx.target_dir / "product/priv-app",
+                    self.ctx.target_dir / "system_ext/app",
+                    self.ctx.target_dir / "system_ext/priv-app"
+                ]
+                
+                for root in target_roots:
+                    if not root.exists(): continue
+                    
+                    # Search recursively in this app root
+                    for target_apk in root.rglob("*.apk"):
+                        target_pkg = self._get_package_name(target_apk)
+                        if target_pkg == pkg_name:
+                            # FOUND MATCH!
+                            app_dir = target_apk.parent
+                            self.logger.info(f"Replacing EU App: {pkg_name}")
+                            self.logger.info(f"  - Removing: {app_dir}")
+                            
+                            # Delete old dir
+                            shutil.rmtree(app_dir)
+                            
+                            # Calculate new destination
+                            # We place the new app in the SAME location structure as the bundle
+                            # relative_path = apk_file.relative_to(tmp_path)
+                            # dest_path = self.ctx.target_dir / relative_path
+                            
+                            # Actually, we should probably place it where the old one was to be safe?
+                            # OR trust the bundle structure. 
+                            # If we trust bundle structure, we just copy.
+                            # But we must delete the old one first to avoid duplicates if path differs.
+                            
+                            found_in_target = True
+                            break
+                    if found_in_target: break
+                
+                if not found_in_target:
+                    self.logger.info(f"Adding new EU App: {pkg_name}")
+
+            # 3. Merging Bundle Files
+            # Now that we've cleaned up conflicts, simply overlay the bundle
+            self.logger.info("Merging EU Bundle files into Target ROM...")
+            shutil.copytree(tmp_path, self.ctx.target_dir, dirs_exist_ok=True)
+
+    def _get_package_name(self, apk_path):
+        try:
+            # aapt2 dump packagename <apk>
+            # Output: package: name='com.android.chrome'
+            cmd = [str(self.ctx.tools.aapt2), "dump", "packagename", str(apk_path)]
+            result = self.shell.run(cmd, capture_output=True, check=False)
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                # Parse "package: name='com.foo.bar'"
+                if "package: name=" in output:
+                    return output.split("'")[1]
+            return None
+        except Exception:
+            return None
 
     def _unlock_device_features(self):
         """

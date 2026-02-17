@@ -114,6 +114,29 @@ Example `features.json`:
 - `--work-dir`: (Optional) Working directory (default: `build`).
 - `--clean`: (Optional) Clean working directory before starting.
 - `--debug`: (Optional) Enable debug logging.
+- `--eu-bundle`: (Optional) Path or URL to a EU Localization Bundle zip.
+
+## EU Localization
+
+This tool supports "Smart Replacement" for localization using a resource bundle.
+
+1.  **Generate a Bundle**:
+    Create a configuration file (e.g., `my_config.json`):
+    ```json
+    {
+        "apps": ["product/app/MiuiCamera", "system/app/Calculator"]
+    }
+    ```
+    Run the generator:
+    ```bash
+    python3 tools/generate_eu_bundle.py --rom <CN_ROM.zip> --config my_config.json
+    ```
+
+2.  **Apply during Porting**:
+    ```bash
+    sudo python3 main.py ... --eu-bundle eu_bundle_v1.0.zip
+    ```
+    *This will automatically replace the stock apps with the localized versions from the bundle.*
 
 ## Directory Structure
 

@@ -316,6 +316,16 @@ class PortingContext:
         self.security_patch = self.port.get_prop("ro.build.version.security_patch") or \
                               self.stock.get_prop("ro.build.version.security_patch") or "Unknown"
         self.logger.info(f"Security Patch: {self.security_patch}")
+
+        # 7. EU ROM Detection
+        # Check filename or ro.build.host
+        if "xiaomi.eu" in self.port.path.name.lower() or \
+           "xiaomi.eu" in self.port.get_prop("ro.build.host", "").lower():
+            self.is_port_eu_rom = True
+        else:
+            self.is_port_eu_rom = False
+        
+        self.logger.info(f"Is Port EU ROM: {self.is_port_eu_rom}")
     
 
     def get_target_prop_file(self, part_name):

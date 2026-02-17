@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("--clean", action="store_true", help="Clean working directory before starting")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--pack-type", choices=["super", "payload"], default="payload", help="Output format: super (Super Image/Fastboot) or payload (OTA Payload/Recovery). Default: payload")
+    parser.add_argument("--eu-bundle", help="Path/URL to EU Localization Bundle zip")
     return parser.parse_args()
 
 def clean_work_dir(work_dir: Path):
@@ -62,6 +63,9 @@ def main():
     if args.port.startswith("http"):
         args.port = str(downloader.download(args.port))
 
+    if args.eu_bundle and args.eu_bundle.startswith("http"):
+        args.eu_bundle = str(downloader.download(args.eu_bundle))
+
     work_dir = Path(args.work_dir).resolve()
     
     if args.clean:
@@ -89,6 +93,7 @@ def main():
         logger.info(">>> Phase 2: Initialization")
         ctx = PortingContext(stock, port, target_work_dir)
         ctx.enable_ksu = args.ksu
+        ctx.eu_bundle = args.eu_bundle
         ctx.initialize_target()
 
         logger.info(f"Detected Stock ROM Type: {stock.rom_type}")

@@ -114,6 +114,29 @@
 - `--work-dir`：（可选）工作目录（默认：`build`）。
 - `--clean`：（可选）开始前清理工作目录。
 - `--debug`：（可选）启用调试日志。
+- `--eu-bundle`: (可选) EU 本地化资源包的路径或 URL。
+
+## EU 本地化 (EU Localization)
+
+本工具支持通过资源包进行“智能替换”来实现本地化。
+
+1.  **制作资源包**:
+    创建一个配置文件 (例如 `my_config.json`):
+    ```json
+    {
+        "apps": ["product/app/MiuiCamera", "system/app/Calculator"]
+    }
+    ```
+    运行生成器:
+    ```bash
+    python3 tools/generate_eu_bundle.py --rom <CN_ROM.zip> --config my_config.json
+    ```
+
+2.  **在移植时应用**:
+    ```bash
+    sudo python3 main.py ... --eu-bundle eu_bundle_v1.0.zip
+    ```
+    *这将自动把底包中的对应应用替换为资源包中的本地化版本。*
 
 ## 目录结构
 
