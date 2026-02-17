@@ -10,6 +10,7 @@ from src.core.modifier import FirmwareModifier, SystemModifier, FrameworkModifie
 from src.core.packer import Repacker
 from src.core.rom import RomPackage
 from src.core.context import PortingContext
+from src.utils.downloader import RomDownloader
 
 # Set up logging
 def setup_logging(level=logging.INFO):
@@ -52,6 +53,14 @@ def main():
     logger.info(f"Port ROM:  {args.port}")
     logger.info(f"KSU:       {args.ksu}")
     logger.info(f"Work Dir:  {args.work_dir}")
+
+    # Handle URL Downloads
+    downloader = RomDownloader()
+    if args.stock.startswith("http"):
+        args.stock = str(downloader.download(args.stock))
+    
+    if args.port.startswith("http"):
+        args.port = str(downloader.download(args.port))
 
     work_dir = Path(args.work_dir).resolve()
     
