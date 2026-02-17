@@ -125,26 +125,31 @@ class SystemModifier:
                     rel_name = src_item.name
                     target_item = rule_target_root / rel_name
                     
-                    # Logic: 
-                    # If ensure_exists=True: Copy even if target doesn't have it (Force Add)
-                    # If ensure_exists=False: Copy ONLY if target already has it (Replace)
+                    found_in_target = False
                     
-                    should_copy = False
-                    
-                    if match_mode == "glob":
-                        # For glob, we might need to find corresponding target by name
-                        # If target_item exists, we replace.
-                        if target_item.exists():
-                            should_copy = True
-                        elif ensure_exists:
-                            should_copy = True
+                    if match_mode == "recursive":
+                        # Search in target
+                        candidates = list(rule_target_root.rglob(rel_name))
+                        if candidates:
+                            target_item = candidates[0]
+                            found_in_target = True
                     else:
-                        # Exact match
+                        # Exact or Glob (flat check)
                         if target_item.exists():
-                            should_copy = True
-                        elif ensure_exists:
-                            should_copy = True
+                            found_in_target = True
                             
+                    should_copy = False
+                    if found_in_target:
+                        should_copy = True
+                    elif ensure_exists:
+                        should_copy = True
+                        # Try to replicate structure if recursive
+                        if match_mode == "recursive":
+                            try:
+                                rel = src_item.relative_to(rule_stock_root)
+                                target_item = rule_target_root / rel
+                            except: pass
+
                     if should_copy:
                         self.logger.info(f"  Replacing/Adding: {rel_name}")
                         

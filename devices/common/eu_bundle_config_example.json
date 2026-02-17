@@ -1,9 +1,0 @@
-{
-    "apps": [
-        "product/app/MiuiCamera",
-        "product/app/Calculator",
-        "product/priv-app/MiuiHome",
-        "product/priv-app/MiuiSystemUI",
-        "system/app/DeskClock"
-    ]
-}
