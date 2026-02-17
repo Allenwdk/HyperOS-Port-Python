@@ -116,27 +116,33 @@
 - `--debug`：（可选）启用调试日志。
 - `--eu-bundle`: (可选) EU 本地化资源包的路径或 URL。
 
-## EU 本地化 (EU Localization)
+## EU 本地化 (恢复国内功能)
 
-本工具支持通过资源包进行“智能替换”来实现本地化。
+此功能旨在为 EU/Global ROM 恢复 **中国国内特有的功能**（如 NFC 门卡、小米钱包、小爱同学等），同时保持 "国际版" 伪装以通过安全检查。
+
+### 如何开启
+
+1.  **自动开启**: 如果移植包 (Port ROM) 被识别为 `xiaomi.eu` 版本（基于文件名或构建主机名），本地化属性将自动应用。
+2.  **手动开启**: 在您的 `devices/<机型代码>/features.json` 中添加 `"enable_eu_localization": true`。
+
+### 如何应用应用包 (智能替换)
+
+为了注入实际的国内版应用（由于体积过大未包含在 git 中），您需要生成并提供一个 **资源包 (Bundle)**。
 
 1.  **制作资源包**:
-    创建一个配置文件 (例如 `my_config.json`):
-    ```json
-    {
-        "apps": ["product/app/MiuiCamera", "system/app/Calculator"]
-    }
-    ```
-    运行生成器:
+    *   准备一个“供体” CN ROM（例如官方 HyperOS CN zip）。
+    *   运行生成工具：
     ```bash
-    python3 tools/generate_eu_bundle.py --rom <CN_ROM.zip> --config my_config.json
+    # 使用默认配置: devices/common/eu_bundle_config.json
+    python3 tools/generate_eu_bundle.py --rom <CN_ROM路径.zip> --config devices/common/eu_bundle_config.json
     ```
+    *   输出: `eu_localization_bundle_v1.0.zip`
 
 2.  **在移植时应用**:
     ```bash
-    sudo python3 main.py ... --eu-bundle eu_bundle_v1.0.zip
+    sudo python3 main.py ... --eu-bundle eu_localization_bundle_v1.0.zip
     ```
-    *这将自动把底包中的对应应用替换为资源包中的本地化版本。*
+    *工具将自动删除冲突的国际版应用，并注入资源包中的国内版应用。*
 
 ## 目录结构
 

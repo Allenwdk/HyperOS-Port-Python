@@ -65,21 +65,40 @@ def main():
             # app_path_str e.g. "product/app/MiuiCamera"
             # We need to find this in the extracted ROM
             
-            # 1. Direct match check
-            src_path = extracted_root / app_path_str
+            # Logic: Split path into partition and relative path
+            # e.g. "system/app/Foo" -> part="system", rest="app/Foo"
+            parts = Path(app_path_str).parts
+            if not parts: continue
             
-            if not src_path.exists():
+            partition = parts[0] # system, product, etc.
+            relative_path = Path(*parts[1:])
+            
+            # Search candidate paths
+            candidates = [
+                extracted_root / app_path_str,                         # Standard: extracted/system/app/Foo
+                extracted_root / partition / partition / relative_path # SAR: extracted/system/system/app/Foo
+            ]
+            
+            found_src = None
+            for candidate in candidates:
+                if candidate.exists():
+                    found_src = candidate
+                    break
+            
+            if not found_src:
                 logger.warning(f"App not found: {app_path_str}")
                 continue
                 
             # 2. Copy to bundle root, preserving structure
+            # Always map to the simple structure (bundle_root/system/app/Foo)
             dest_path = bundle_root / app_path_str
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             
-            if src_path.is_dir():
-                shutil.copytree(src_path, dest_path)
+            if found_src.is_dir():
+                if dest_path.exists(): shutil.rmtree(dest_path)
+                shutil.copytree(found_src, dest_path)
             else:
-                shutil.copy2(src_path, dest_path)
+                shutil.copy2(found_src, dest_path)
             
             logger.info(f"Collected: {app_path_str}")
             count += 1

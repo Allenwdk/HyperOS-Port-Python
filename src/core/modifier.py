@@ -185,6 +185,22 @@ class SystemModifier:
         build_props = config.get("build_props", {})
         if build_props:
             self._apply_build_props(build_props)
+            
+        # 4. Apply EU Localization Props (if enabled)
+        # Condition: Auto-detected EU ROM OR explicit enable_eu_localization in features.json
+        enable_eu_loc = config.get("enable_eu_localization", False) or getattr(self.ctx, "is_port_eu_rom", False)
+        
+        if enable_eu_loc:
+            self.logger.info("Enabling EU Localization properties...")
+            eu_cfg_path = Path("devices/common/eu_localization.json")
+            if eu_cfg_path.exists():
+                try:
+                    with open(eu_cfg_path, 'r') as f:
+                        eu_config = json.load(f)
+                    eu_props = eu_config.get("build_props", {})
+                    self._apply_build_props(eu_props)
+                except Exception as e:
+                    self.logger.error(f"Failed to apply EU localization props: {e}")
 
     def _load_feature_config(self):
         config = {}

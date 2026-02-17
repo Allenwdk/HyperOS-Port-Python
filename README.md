@@ -116,27 +116,33 @@ Example `features.json`:
 - `--debug`: (Optional) Enable debug logging.
 - `--eu-bundle`: (Optional) Path or URL to a EU Localization Bundle zip.
 
-## EU Localization
+## EU Localization (China Feature Restoration)
 
-This tool supports "Smart Replacement" for localization using a resource bundle.
+This feature restores **China-exclusive features** (NFC, Mi Wallet, XiaoAi, etc.) to EU/Global ROMs while maintaining "International" status to pass safety checks.
+
+### How to Enable
+
+1.  **Automatic**: If the Port ROM is detected as `xiaomi.eu` (based on filename or build host), localization properties are applied automatically.
+2.  **Manual**: Add `"enable_eu_localization": true` to your `devices/<code/features.json`.
+
+### How to Apply Apps (Smart Replacement)
+
+To inject the actual Chinese apps (which are large and not included in git), you must generate and provide a **Bundle**.
 
 1.  **Generate a Bundle**:
-    Create a configuration file (e.g., `my_config.json`):
-    ```json
-    {
-        "apps": ["product/app/MiuiCamera", "system/app/Calculator"]
-    }
-    ```
-    Run the generator:
+    *   Prepare a Donor CN ROM (e.g., official HyperOS CN zip).
+    *   Run the generator tool:
     ```bash
-    python3 tools/generate_eu_bundle.py --rom <CN_ROM.zip> --config my_config.json
+    # Uses default config: devices/common/eu_bundle_config.json
+    python3 tools/generate_eu_bundle.py --rom <path_to_cn_rom.zip> --config devices/common/eu_bundle_config.json
     ```
+    *   Output: `eu_localization_bundle_v1.0.zip`
 
 2.  **Apply during Porting**:
     ```bash
-    sudo python3 main.py ... --eu-bundle eu_bundle_v1.0.zip
+    sudo python3 main.py ... --eu-bundle eu_localization_bundle_v1.0.zip
     ```
-    *This will automatically replace the stock apps with the localized versions from the bundle.*
+    *The tool will intelligently remove conflicting Global apps and inject the CN versions from the bundle.*
 
 ## Directory Structure
 
