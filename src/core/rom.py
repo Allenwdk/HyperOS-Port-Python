@@ -267,6 +267,11 @@ class RomPackage:
             self.logger.error(f"Image extraction failed: {e}")
             raise
 
+        # === Step 2: Images -> Folders (Level 2 Extraction) ===
+        # After converting zip/payload to .img files, we extract them to folders
+        # for modification. 
+        self._batch_extract_files(partitions or ANDROID_LOGICAL_PARTITIONS)
+
     def _process_sparse_images(self):
         """
         Merge/Convert sparse images (super.img.*, cust.img.*) to raw images using simg2img
