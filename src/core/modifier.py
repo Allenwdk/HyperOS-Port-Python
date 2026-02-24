@@ -1380,8 +1380,13 @@ class RomModifier:
             {"mode": "file_to_file", "source": "bootanimation.zip", "target": "bootanimation.zip"},
         ]
         
-        if self.ctx.stock_rom_code == "fuxi":
-            fuxi_rules = [
+        if self.ctx.stock_rom_code in ("fuxi", "nuwa"):
+            if self.ctx.stock_rom_code == "fuxi":
+                device_name = "fuxi"
+            else:
+                device_name = "nuwa"
+            
+            device_rules = [
                 {
                     "mode": "hexpatch", 
                     "target": "libmigui.so", 
@@ -1395,9 +1400,9 @@ class RomModifier:
                     "hex_new": "726F2E73706F6F6665642E646576696365"
                 }
             ]
-            # Properties migrated to devices/fuxi/features.json
+            # Properties migrated to devices/{device}/features.json
             
-            sync_rules.extend(fuxi_rules)       
+            sync_rules.extend(device_rules)       
             self._apply_wild_boost()
           
         self.ctx.syncer.execute_rules(self.stock_rom_img, self.target_rom_img, sync_rules)
