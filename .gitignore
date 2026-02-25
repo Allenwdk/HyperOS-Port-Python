@@ -41,6 +41,9 @@ devices/**/*.apk
 *.bin
 tmp/
 
+# stock and port roms
+roms/
+
 # Exception for otatools library
 !otatools/lib64/
 
