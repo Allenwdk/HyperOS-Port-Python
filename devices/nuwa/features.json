@@ -4,7 +4,12 @@
             "ro.product.spoofed.name": "vermeer",
             "ro.spoofed.device": "vermeer",
             "persist.prophook.com.xiaomi.joyose": "DEVICE:vermeer,PRODUCT:23113RKC6C",
-            "persist.prophook.com.miui.powerkeeper": "DEVICE:vermeer,PRODUCT:23113RKC6C"
+            "persist.prophook.com.miui.powerkeeper": "DEVICE:vermeer,PRODUCT:23113RKC6C",
+            "persist.vendor.disable_idle_fps.threshold": "10",
+            "ro.vendor.display.primary_idle_refresh_rate": "60,1:10",
+            "ro.vendor.mi_sf.aod_mode_ddic_refresh_rate": "1",
+            "ro.vendor.display.idle_default_fps": "120",
+            "persist.miui.extm.dm_opt.enable": "true"
         }
     }
 }

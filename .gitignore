@@ -54,3 +54,5 @@ roms/
 *.bak
 *.odex
 *.vdex
+log_all.txt
+log.txt
