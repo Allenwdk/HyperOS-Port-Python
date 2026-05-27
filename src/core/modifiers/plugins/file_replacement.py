@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict
 
 from src.core.modifiers.plugin_system import ModifierPlugin, ModifierRegistry
+from src.core.performance.cache import PathCache
 from src.utils.download import AssetDownloader
 
 
@@ -30,6 +31,8 @@ class FileReplacementPlugin(ModifierPlugin):
         self.evaluator = ConditionEvaluator()
         self.downloader = AssetDownloader()
         self.shell = ShellRunner()
+        self._target_cache: PathCache | None = None
+        self._stock_cache: PathCache | None = None
 
     def modify(self) -> bool:
         """Execute file replacements."""
@@ -55,6 +58,9 @@ class FileReplacementPlugin(ModifierPlugin):
 
         stock_root = self.ctx.stock.extracted_dir
         target_root = self.ctx.target_dir
+
+        self._target_cache = PathCache(target_root)
+        self._stock_cache = PathCache(stock_root)
 
         for rule in replacements:
             # Evaluate conditions
@@ -163,7 +169,7 @@ class FileReplacementPlugin(ModifierPlugin):
             if tf.exists():
                 target_files.append(tf)
         else:
-            target_files = list(target_root.rglob(target_val))
+            target_files = list(self._target_cache.rglob(target_val))
 
         if not target_files:
             self.logger.warning(f"HexPatch target not found: {target_val}")
@@ -212,7 +218,7 @@ class FileReplacementPlugin(ModifierPlugin):
         if "/" in target_val:
             target_files.append(target_root / target_val)
         else:
-            target_files = list(target_root.rglob(target_val))
+            target_files = list(self._target_cache.rglob(target_val))
 
         if not target_files:
             return
@@ -243,7 +249,7 @@ class FileReplacementPlugin(ModifierPlugin):
             if match_mode == "glob":
                 sources = list(rule_stock_root.glob(pattern))
             elif match_mode == "recursive":
-                sources = list(rule_stock_root.rglob(pattern))
+                sources = list(self._stock_cache.rglob(pattern))
             else:
                 exact_file = rule_stock_root / pattern
                 if exact_file.exists():
@@ -255,7 +261,7 @@ class FileReplacementPlugin(ModifierPlugin):
 
                 found_in_target = False
                 if match_mode == "recursive":
-                    candidates = list(rule_target_root.rglob(rel_name))
+                    candidates = list(self._target_cache.rglob(rel_name))
                     if candidates:
                         target_item = candidates[0]
                         found_in_target = True

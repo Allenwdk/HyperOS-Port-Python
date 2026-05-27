@@ -2,17 +2,25 @@
 
 This module provides a flexible plugin architecture for ROM modifications.
 Plugins can be registered dynamically and executed in a specific order.
+
+增强功能：
+- EventDrivenPlugin: 事件驱动插件基类，集成 EventBus
+- 插件间通信：通过事件总线解耦插件依赖
+- 热插拔：运行时动态加载/卸载插件
+- 监控指标：每个插件自动采集执行指标
 """
 
 import io
 import logging
 import subprocess
 import threading
+import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type
 
+from src.core.events import Event, EventBus, PluginEndEvent, PluginStartEvent
 from src.core.modifiers.transaction import TransactionManager
 
 logger = logging.getLogger(__name__)
@@ -137,6 +145,149 @@ class ModifierPlugin(ABC):
         return f"{self.__class__.__name__}(name='{self.name}', priority={self.priority})"
 
 
+class EventDrivenPlugin(ModifierPlugin):
+    """事件驱动插件基类。
+
+    继承自 ModifierPlugin，集成 EventBus 实现事件发布和订阅，
+    支持插件间通信和自动采集执行指标。
+
+    子类可以通过 on_event() 订阅事件，通过 emit_event() 发布事件。
+    执行指标自动采集，可通过 get_metrics() 获取。
+    """
+
+    tags: List[str] = []
+
+    def __init__(self, context: Any, logger: Optional[logging.Logger] = None):
+        super().__init__(context, logger)
+        self._event_bus: Optional[EventBus] = None
+        self._pending_subscriptions: List[tuple] = []
+        self._metrics: Dict[str, Any] = {
+            "execution_count": 0,
+            "success_count": 0,
+            "failure_count": 0,
+            "total_duration": 0.0,
+            "last_execution_time": 0.0,
+        }
+
+    @property
+    def event_bus(self) -> Optional[EventBus]:
+        """获取关联的事件总线。"""
+        return self._event_bus
+
+    def set_event_bus(self, bus: Optional[EventBus]) -> None:
+        """设置事件总线。
+
+        如果之前有通过 on_event() 注册但当时没有 EventBus 的订阅，
+        会在设置 EventBus 时自动应用。
+
+        Args:
+            bus: EventBus 实例，None 表示取消关联
+        """
+        self._event_bus = bus
+        if bus is not None:
+            for event_type, handler in self._pending_subscriptions:
+                bus.subscribe(event_type, handler)
+            self._pending_subscriptions.clear()
+
+    def on_event(self, event_type: str, handler: Callable[[Event], None]) -> None:
+        """订阅事件。
+
+        如果 EventBus 尚未设置，订阅会被暂存，待 set_event_bus() 时自动应用。
+
+        Args:
+            event_type: 事件类型标识符
+            handler: 事件处理函数
+        """
+        if self._event_bus is not None:
+            self._event_bus.subscribe(event_type, handler)
+        else:
+            self._pending_subscriptions.append((event_type, handler))
+
+    def emit_event(self, event_type: str, data: Optional[Dict[str, Any]] = None) -> None:
+        """发布事件。
+
+        Args:
+            event_type: 事件类型标识符
+            data: 事件数据字典
+        """
+        if self._event_bus is not None:
+            event = Event(
+                event_type=event_type,
+                data=data or {},
+                source=self.name,
+            )
+            self._event_bus.publish(event)
+
+    def get_metrics(self) -> Dict[str, Any]:
+        """获取插件执行指标。"""
+        return dict(self._metrics)
+
+    def reset_metrics(self) -> None:
+        """重置插件执行指标。"""
+        self._metrics = {
+            "execution_count": 0,
+            "success_count": 0,
+            "failure_count": 0,
+            "total_duration": 0.0,
+            "last_execution_time": 0.0,
+        }
+
+    def modify(self) -> bool:
+        """执行修改（子类必须重写）。
+
+        自动采集执行指标并在执行前后发布事件。
+
+        Returns:
+            bool: True 表示成功，False 表示失败
+        """
+        start_time = time.monotonic()
+        self._metrics["execution_count"] += 1
+
+        if self._event_bus is not None:
+            self._event_bus.publish(
+                PluginStartEvent(self.name, self.priority, source=self.name)
+            )
+
+        try:
+            result = self._execute_modify()
+            duration = time.monotonic() - start_time
+
+            self._metrics["total_duration"] += duration
+            self._metrics["last_execution_time"] = duration
+
+            if result:
+                self._metrics["success_count"] += 1
+            else:
+                self._metrics["failure_count"] += 1
+
+            if self._event_bus is not None:
+                self._event_bus.publish(
+                    PluginEndEvent(self.name, success=result, duration=duration, source=self.name)
+                )
+
+            return result
+        except Exception:
+            duration = time.monotonic() - start_time
+            self._metrics["total_duration"] += duration
+            self._metrics["last_execution_time"] = duration
+            self._metrics["failure_count"] += 1
+
+            if self._event_bus is not None:
+                self._event_bus.publish(
+                    PluginEndEvent(self.name, success=False, duration=duration, source=self.name)
+                )
+
+            raise
+
+    def _execute_modify(self) -> bool:
+        """实际修改逻辑（子类应重写此方法而非 modify()）。
+
+        Returns:
+            bool: True 表示成功，False 表示失败
+        """
+        raise NotImplementedError("子类必须实现 _execute_modify() 方法")
+
+
 class FunctionalPlugin(ModifierPlugin):
     """A wrapper for functional plugins."""
 
@@ -232,6 +383,7 @@ class PluginManager:
         self._transaction_manager: Optional[TransactionManager] = None
         self._max_workers = max_workers
         self._dry_run = dry_run
+        self._event_bus: Optional[EventBus] = None
         self._execution_report: Dict[str, Any] = {
             "total": 0,
             "succeeded": 0,
@@ -260,6 +412,10 @@ class PluginManager:
             instance.name = plugin_class.__name__
 
         instance.set_plugin_manager(self)
+
+        # 为事件驱动插件自动绑定 EventBus
+        if isinstance(instance, EventDrivenPlugin) and self._event_bus is not None:
+            instance.set_event_bus(self._event_bus)
 
         self._plugins[instance.name] = instance
         self.logger.debug(f"Registered plugin: {instance}")
@@ -292,6 +448,24 @@ class PluginManager:
     def list_plugins(self) -> List[ModifierPlugin]:
         """Get list of all registered plugins."""
         return list(self._plugins.values())
+
+    @property
+    def event_bus(self) -> Optional[EventBus]:
+        """获取关联的事件总线。"""
+        return self._event_bus
+
+    def set_event_bus(self, bus: Optional[EventBus]) -> None:
+        """设置事件总线并为所有已注册的事件驱动插件绑定。
+
+        Args:
+            bus: EventBus 实例，None 表示取消关联
+        """
+        self._event_bus = bus
+        # 为已注册的事件驱动插件绑定 EventBus
+        if bus is not None:
+            for plugin in self._plugins.values():
+                if isinstance(plugin, EventDrivenPlugin):
+                    plugin.set_event_bus(bus)
 
     def enable_plugin(self, name: str, enabled: bool = True) -> bool:
         """Enable or disable a plugin."""
@@ -755,6 +929,32 @@ class ModifierRegistry:
     def list_all(cls) -> Dict[str, Type[ModifierPlugin]]:
         """Get all registered plugin classes."""
         return cls._registry.copy()
+
+    @classmethod
+    def discover(
+        cls,
+        tags: Optional[List[str]] = None,
+        plugin_type: Optional[Type] = None,
+    ) -> List[Type[ModifierPlugin]]:
+        """按条件发现已注册的插件。
+
+        Args:
+            tags: 按标签过滤，匹配任一标签即入选
+            plugin_type: 按插件类型过滤（如 EventDrivenPlugin）
+
+        Returns:
+            符合条件的插件类列表
+        """
+        results = []
+        for plugin_class in cls._registry.values():
+            if plugin_type is not None and not issubclass(plugin_class, plugin_type):
+                continue
+            if tags is not None:
+                plugin_tags = getattr(plugin_class, "tags", [])
+                if not any(tag in plugin_tags for tag in tags):
+                    continue
+            results.append(plugin_class)
+        return results
 
     @classmethod
     def auto_register(cls, manager: PluginManager, filter_prefix: Optional[str] = None):

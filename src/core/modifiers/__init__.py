@@ -17,6 +17,7 @@ from src.core.modifiers.framework import FrameworkModifier
 
 # Plugin system
 from src.core.modifiers.plugin_system import (
+    EventDrivenPlugin,
     ModifierPlugin,
     ModifierRegistry,
     PluginConfig,
@@ -71,6 +72,7 @@ __all__ = [
     "UnifiedModifier",
     "ApkModifier",
     # Plugin system
+    "EventDrivenPlugin",
     "ModifierPlugin",
     "PluginManager",
     "ModifierRegistry",
