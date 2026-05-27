@@ -68,3 +68,7 @@ temp/
 .omg/
 .docs/
 .omx/
+
+# AI Agent tools
+.omc/
+.sisyphus/
