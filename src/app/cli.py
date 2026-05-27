@@ -126,6 +126,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--show-cache-stats", action="store_true", help="Show cache statistics and exit"
     )
+    parser.add_argument(
+        "--enable-monitoring",
+        action="store_true",
+        help="启用监控系统，自动采集阶段指标并生成报告",
+    )
+    parser.add_argument(
+        "--monitoring-report",
+        default="build/monitoring-report.json",
+        help="监控报告输出路径 (默认: build/monitoring-report.json)",
+    )
     return parser
 
 

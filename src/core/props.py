@@ -6,6 +6,7 @@ from pathlib import Path
 
 from src.core.config_merger import ConfigMerger
 from src.core.modifiers.plugin_system import ModifierPlugin, ModifierRegistry
+from src.core.performance.cache import PathCache
 
 
 @ModifierRegistry.register
@@ -21,9 +22,14 @@ class PropertyModifier(ModifierPlugin):
         super().__init__(context, **kwargs)
         self.merger = ConfigMerger(self.logger)
 
-        # Custom build info (can be passed from external parameters)
         self.build_user = os.getenv("BUILD_USER", "Bruce")
         self.build_host = os.getenv("BUILD_HOST", "HyperOS-Port")
+
+        self._path_cache = PathCache(self.ctx.target_dir)
+
+    def _get_build_prop_files(self):
+        """获取所有 build.prop 文件路径（使用缓存）。"""
+        return self._path_cache.rglob("build.prop")
 
     def modify(self) -> bool:
         """Execute all property modification logic"""
@@ -210,7 +216,7 @@ class PropertyModifier(ModifierPlugin):
         if port_model and base_model and port_model != base_model:
             replacements.append((port_model, base_model))
 
-        for prop_file in self.ctx.target_dir.rglob("build.prop"):
+        for prop_file in self._get_build_prop_files():
             try:
                 content = prop_file.read_text(encoding="utf-8", errors="ignore")
                 new_content = content
@@ -246,7 +252,7 @@ class PropertyModifier(ModifierPlugin):
             if val:
                 base_props[k] = val
 
-        for prop_file in self.ctx.target_dir.rglob("build.prop"):
+        for prop_file in self._get_build_prop_files():
             try:
                 content = prop_file.read_text(encoding="utf-8", errors="ignore")
                 modified = False
@@ -326,7 +332,7 @@ class PropertyModifier(ModifierPlugin):
             final_replacements[f"{k}="] = f"{k}={formatted_val}"
 
         # Iterate all build.prop and modify
-        for prop_file in self.ctx.target_dir.rglob("build.prop"):
+        for prop_file in self._get_build_prop_files():
             lines = []
             with open(prop_file, "r", encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
@@ -388,7 +394,7 @@ class PropertyModifier(ModifierPlugin):
 
         # 2. Modify porting package
         found_in_port = False
-        target_props = list(self.ctx.target_dir.rglob("build.prop"))
+        target_props = self._get_build_prop_files()
 
         for prop_file in target_props:
             content = prop_file.read_text(encoding="utf-8", errors="ignore")
@@ -502,9 +508,17 @@ class PropertyModifier(ModifierPlugin):
         self.logger.info("Regenerating build fingerprint...")
 
         def get_current_prop(key, default=""):
-            # Priority: product -> system -> vendor
-            for part in ["product", "system", "vendor", "mi_ext"]:
-                for prop_file in (self.ctx.target_dir / part).rglob("build.prop"):
+            part_prefixes = {
+                "product": "product" + os.sep,
+                "system": "system" + os.sep,
+                "vendor": "vendor" + os.sep,
+                "mi_ext": "mi_ext" + os.sep,
+            }
+            for _part, prefix in part_prefixes.items():
+                for prop_file in self._get_build_prop_files():
+                    rel = str(prop_file.relative_to(self.ctx.target_dir))
+                    if not rel.startswith(prefix):
+                        continue
                     try:
                         with open(prop_file, "r", errors="ignore") as f:
                             for line in f:
@@ -551,7 +565,7 @@ class PropertyModifier(ModifierPlugin):
             "ro.system.build.description=": f"ro.system.build.description={new_description}",
         }
 
-        for prop_file in self.ctx.target_dir.rglob("build.prop"):
+        for prop_file in self._get_build_prop_files():
             lines = []
             try:
                 with open(prop_file, "r", encoding="utf-8", errors="ignore") as f:
