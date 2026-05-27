@@ -11,12 +11,18 @@ from src.app.bootstrap import clean_work_dir, initialize_cache_manager
 from src.app.diff_report import collect_artifact_state, generate_diff_report, save_diff_report
 from src.app.preflight import run_preflight, save_preflight_report
 from src.app.snapshots import StageSnapshotManager
-from src.core.config_loader import load_device_config
 from src.core.context import PortingContext
-from src.core.device_auto_config import get_or_create_device_config
 from src.core.modifiers import FirmwareModifier, FrameworkModifier, RomModifier, UnifiedModifier
+from src.core.monitoring import Monitor, reset_monitor, set_monitor
+from src.core.monitoring.console_ui import ConsoleReporter
 from src.core.packer import Repacker
-from src.core.rom import RomPackage
+from src.core.workflow.orchestrator import PortingOrchestrator
+from src.core.workflow.phases import (
+    ExtractionPhase,
+    InitializationPhase,
+    ModificationPhase,
+    PackingPhase,
+)
 from src.utils.downloader import RomDownloader
 from src.utils.otatools_manager import OtaToolsManager
 
@@ -425,30 +431,35 @@ def execute_porting(args, logger: logging.Logger) -> int:
     if args.clean:
         clean_work_dir(work_dir, logger)
 
-    logger.info(">>> Phase 1: Extraction")
-    stock = RomPackage(args.stock, stock_work_dir, label="Stock")
-    stock.extract_images()
+    # 使用 PortingOrchestrator 执行解包和初始化阶段
+    init_orchestrator = PortingOrchestrator(
+        phases=[
+            ExtractionPhase(),
+            InitializationPhase(),
+        ]
+    )
+    init_context = {
+        "stock_rom_path": args.stock,
+        "port_rom_path": args.port if not is_official_modify else args.stock,
+        "stock_work_dir": stock_work_dir,
+        "port_work_dir": port_work_dir,
+        "target_work_dir": target_work_dir,
+        "is_official_modify": is_official_modify,
+        "cache_manager": cache_manager,
+        "eu_bundle": args.eu_bundle,
+    }
+    init_result = init_orchestrator.run(init_context)
+    if not init_result.success:
+        logger.error("解包/初始化阶段失败: %s", init_result.error)
+        return 1
 
-    if is_official_modify:
-        port = stock
-    else:
-        port = RomPackage(args.port, port_work_dir, label="Port", cache_manager=cache_manager)
-        port.extract_images(["system", "product", "system_ext", "mi_ext"])
+    stock = init_result.context["stock_rom"]
+    port = init_result.context["port_rom"]
+    ctx = init_result.context["porting_context"]
+    stock_device_code = init_result.context["stock_device_code"]
 
-    logger.info(">>> Phase 2: Initialization")
-    ctx = PortingContext(stock, port, target_work_dir, is_official_modify=is_official_modify)
-    ctx.cache_manager = cache_manager
-    ctx.eu_bundle = args.eu_bundle
-    ctx.initialize_target(clean_existing=True)
     if snapshot_manager:
         snapshot_manager.capture("phase2_initialized", target_work_dir)
-
-    # Get stock device code from props or payload metadata
-    stock_device_code = (
-        stock.get_prop("ro.product.name_for_attestation")
-        or stock.get_prop("ro.product.vendor.device")
-        or "unknown"
-    )
 
     device_config_dir = Path("devices") / stock_device_code
     if not device_config_dir.exists():
@@ -460,18 +471,6 @@ def execute_porting(args, logger: logging.Logger) -> int:
             "Detected existing device config for %s, ensuring partition_info.json is present.",
             stock_device_code,
         )
-    try:
-        ctx.device_config = get_or_create_device_config(
-            device_code=stock_device_code,
-            payload_path=Path(args.stock) if stock.rom_type.name == "PAYLOAD" else None,
-            stock_props=stock.props,
-            logger=logger,
-            payload_info=stock.payload_info,
-        )
-    except Exception as e:
-        logger.warning(f"Device config initialization failed: {e}")
-        logger.info("Falling back to common config")
-        ctx.device_config = load_device_config(stock_device_code, logger)
 
     super_size_check = build_super_size_check(stock_device_code, ctx.device_config)
     if super_size_check.get("mismatch"):
@@ -480,10 +479,6 @@ def execute_porting(args, logger: logging.Logger) -> int:
             super_size_check.get("device_config_super_size"),
             super_size_check.get("partition_info_super_size"),
         )
-
-    if cache_manager and ctx.device_config.get("cache", {}).get("partitions", False):
-        logger.info("Partition-level caching enabled by device config")
-        cache_manager.cache_partitions = True
 
     pack_type, fs_type = determine_pack_settings(args, ctx, logger)
     checkpoint_path = save_repack_checkpoint(ctx, work_dir)
@@ -499,11 +494,37 @@ def execute_porting(args, logger: logging.Logger) -> int:
     baseline_artifact_state = (
         collect_artifact_state(target_work_dir, logger) if args.enable_diff_report else None
     )
-    run_modification_phases(ctx, phases_to_run, logger)
+
+    monitor = None
+    reporter = None
+    if getattr(args, "enable_monitoring", False):
+        monitor = Monitor()
+        monitor.start()
+        set_monitor(monitor)
+        reporter = ConsoleReporter()
+        monitor.add_progress_listener(reporter.on_progress_update)
+        logger.info("监控系统已启用，报告将保存至: %s", args.monitoring_report)
+
+    modify_orchestrator = PortingOrchestrator(
+        monitor=monitor,
+        phases=[
+            ModificationPhase(),
+            PackingPhase(),
+        ]
+    )
+    modify_context = {
+        "porting_context": ctx,
+        "phases_to_run": phases_to_run,
+        "pack_type": pack_type,
+        "fs_type": fs_type,
+    }
+    modify_result = modify_orchestrator.run(modify_context)
+    if not modify_result.success:
+        logger.error("修改/打包阶段失败: %s", modify_result.error)
+        return 1
+
     if snapshot_manager:
         snapshot_manager.capture("phase3_modified", target_work_dir)
-
-    run_repacking(ctx, phases_to_run, pack_type, fs_type, target_work_dir, logger)
     if snapshot_manager and ("repack" in phases_to_run or phases_to_run == DEFAULT_PHASES):
         snapshot_manager.capture("phase4_repacked", target_work_dir)
     if args.enable_diff_report and baseline_artifact_state is not None:
@@ -513,6 +534,14 @@ def execute_porting(args, logger: logging.Logger) -> int:
         report_path = save_diff_report(diff_report, args.diff_report)
         logger.info(f"Artifact diff report saved to: {report_path}")
         log_diff_report_summary(diff_report, logger)
+
+    if monitor is not None:
+        monitor.stop()
+        report_path = Path(args.monitoring_report)
+        monitor.save_report(report_path)
+        monitor.print_report()
+        logger.info("监控报告已保存至: %s", report_path)
+        reset_monitor()
 
     logger.info("=" * 70)
     logger.info("Porting completed successfully!")
