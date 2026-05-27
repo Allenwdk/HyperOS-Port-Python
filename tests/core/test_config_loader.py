@@ -70,7 +70,7 @@ class TestConfigMerger:
             result = merger.load_config(config_path)
 
         assert result == {}
-        assert "Failed to parse" in caplog.text
+        assert "解析配置文件失败" in caplog.text
 
     def test_load_config_io_error(self, merger, tmp_path, caplog):
         """Test handling IO errors during config loading."""
