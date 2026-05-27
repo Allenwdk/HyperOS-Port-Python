@@ -131,7 +131,7 @@ class ExecutionTracer:
     def __init__(self):
         self._root_operations: List[OperationRecord] = []
         self._operation_stack: List[OperationRecord] = []
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     @contextmanager
     def trace(self, name: str, **metadata):
@@ -432,6 +432,226 @@ class Monitor:
     def print_report(self):
         """Print monitoring report."""
         self.report.print_summary()
+
+
+class EventBus:
+    """轻量级事件总线，支持发布/订阅模式。
+
+    用于监控事件的解耦分发，允许外部系统监听监控指标变化。
+    """
+
+    def __init__(self):
+        self._subscribers: Dict[str, List[Callable]] = {}
+        self._lock = threading.Lock()
+
+    def subscribe(self, event_type: str, handler: Callable):
+        """订阅指定类型的事件。"""
+        with self._lock:
+            if event_type not in self._subscribers:
+                self._subscribers[event_type] = []
+            self._subscribers[event_type].append(handler)
+
+    def unsubscribe(self, event_type: str, handler: Callable):
+        """取消订阅指定类型的事件。"""
+        with self._lock:
+            if event_type in self._subscribers:
+                self._subscribers[event_type] = [
+                    h for h in self._subscribers[event_type] if h != handler
+                ]
+
+    def publish(self, event_type: str, data: Any):
+        """发布事件到所有订阅者。"""
+        with self._lock:
+            handlers = list(self._subscribers.get(event_type, []))
+        for handler in handlers:
+            try:
+                handler(event_type, data)
+            except Exception:
+                pass
+
+
+class MonitoringMiddleware:
+    """可插入的监控中间件，支持自定义指标采集钩子。
+
+    通过注册回调函数，在执行事件发生时触发自定义指标收集逻辑。
+    """
+
+    def __init__(self, collector: Optional[MetricsCollector] = None):
+        self._collector = collector or MetricsCollector()
+        self._execution_hooks: List[Callable] = []
+        self._lock = threading.Lock()
+
+    @property
+    def collector(self) -> MetricsCollector:
+        return self._collector
+
+    def on_execution(self, func: Callable) -> Callable:
+        """注册执行事件钩子装饰器。
+
+        被装饰的函数签名应为: (name: str, duration: float, success: bool) -> None
+        """
+        with self._lock:
+            self._execution_hooks.append(func)
+        return func
+
+    def notify_execution(self, name: str, duration: float, success: bool):
+        """通知所有钩子执行事件。"""
+        with self._lock:
+            hooks = list(self._execution_hooks)
+        for hook in hooks:
+            try:
+                hook(name, duration, success)
+            except Exception:
+                pass
+
+
+class MonitoredComponent:
+    """提供通用监控能力的基类。
+
+    所有需要监控能力的组件都可以继承此类，获得：
+    - 自动化的执行跟踪（耗时、成功/失败）
+    - 与 MetricsCollector 的集成
+    - 可选的 EventBus 事件发布
+    """
+
+    def __init__(
+        self,
+        collector: Optional[MetricsCollector] = None,
+        name: str = "",
+        event_bus: Optional[EventBus] = None,
+    ):
+        self._collector = collector or MetricsCollector()
+        self._component_name = name
+        self._event_bus = event_bus
+
+    @contextmanager
+    def track_execution(self, operation: Optional[str] = None):
+        """跟踪代码块执行，自动记录耗时和成功/失败指标。"""
+        op_name = operation or self._component_name
+        start = time.time()
+        success = False
+        try:
+            yield
+            success = True
+        finally:
+            duration = time.time() - start
+            self._collector.record(f"{op_name}.duration", duration, unit="s")
+            counter_name = f"{op_name}.success" if success else f"{op_name}.failure"
+            self._collector.increment(counter_name)
+            if self._event_bus is not None:
+                self._event_bus.publish(
+                    "monitor.execution",
+                    {
+                        "component": self._component_name,
+                        "operation": op_name,
+                        "duration": duration,
+                        "success": success,
+                    },
+                )
+
+
+class MonitoredModifier:
+    """包装现有修改器，自动采集执行指标。
+
+    用法：
+        modifier = MonitoredModifier(wrapped=MyModifier(), collector=collector, name="my_mod")
+        result = modifier.run()
+    """
+
+    def __init__(
+        self,
+        wrapped: Any,
+        collector: Optional[MetricsCollector] = None,
+        name: str = "",
+        event_bus: Optional[EventBus] = None,
+    ):
+        self._wrapped = wrapped
+        self._collector = collector or MetricsCollector()
+        self._modifier_name = name or getattr(wrapped, "name", wrapped.__class__.__name__)
+        self._event_bus = event_bus
+
+    def run(self, *args, **kwargs):
+        """执行被包装的修改器，自动采集执行指标。"""
+        op_name = f"modifier.{self._modifier_name}"
+        self._collector.increment(f"{op_name}.attempts")
+        start = time.time()
+        success = False
+        try:
+            result = self._wrapped.run(*args, **kwargs)
+            success = True
+            return result
+        except Exception:
+            self._collector.increment(f"{op_name}.failures")
+            raise
+        finally:
+            duration = time.time() - start
+            self._collector.record(f"{op_name}.duration", duration, unit="s")
+            if success:
+                self._collector.increment(f"{op_name}.successes")
+            if self._event_bus is not None:
+                self._event_bus.publish(
+                    "monitor.modifier",
+                    {
+                        "name": self._modifier_name,
+                        "duration": duration,
+                        "success": success,
+                    },
+                )
+
+    def record_files_modified(self, count: int):
+        """记录修改的文件数量。"""
+        self._collector.increment(f"modifier.{self._modifier_name}.files_modified", count)
+
+    def __getattr__(self, name):
+        return getattr(self._wrapped, name)
+
+
+class MonitoredPhase:
+    """包装阶段执行，自动采集阶段执行指标。
+
+    用法：
+        phase = MonitoredPhase("extraction", collector=collector)
+        with phase.execute():
+            # 阶段工作
+            pass
+    """
+
+    def __init__(
+        self,
+        phase_name: str,
+        collector: Optional[MetricsCollector] = None,
+        event_bus: Optional[EventBus] = None,
+    ):
+        self._phase_name = phase_name
+        self._collector = collector or MetricsCollector()
+        self._event_bus = event_bus
+
+    @contextmanager
+    def execute(self):
+        """执行阶段并自动采集指标。"""
+        prefix = f"phase.{self._phase_name}"
+        self._collector.increment(f"{prefix}.attempts")
+        start = time.time()
+        success = False
+        try:
+            yield
+            success = True
+        finally:
+            duration = time.time() - start
+            self._collector.record(f"{prefix}.duration", duration, unit="s")
+            if success:
+                self._collector.increment(f"{prefix}.success")
+            else:
+                self._collector.increment(f"{prefix}.failures")
+            if self._event_bus is not None:
+                self._event_bus.publish(
+                    "monitor.phase",
+                    {
+                        "phase": self._phase_name,
+                        "duration": duration,
+                        "success": success,
+                    },
+                )
 
 
 # Decorator for monitoring functions
