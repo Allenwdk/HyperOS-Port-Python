@@ -2,10 +2,26 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/toraidl/HyperOS-Port-Python?style=flat)](https://github.com/toraidl/HyperOS-Port-Python/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/toraidl/HyperOS-Port-Python?style=flat)](https://github.com/toraidl/HyperOS-Port-Python/network/members)
+[![版本](https://img.shields.io/badge/版本-2.0.0-blue)](https://github.com/toraidl/HyperOS-Port-Python/releases)
+[![Python](https://img.shields.io/badge/Python-3.10+-green)](https://www.python.org/)
 
 **中文 (Chinese)** | [English](README_EN.md)
 
 一个面向小米/红米设备的 HyperOS ROM 移植工具。覆盖常见移植流程：解包、补丁处理、功能适配、重新打包与 OTA 升级包产出。
+
+> **v2.0 重大更新**: 全新模块化架构，支持插件系统、事件驱动工作流和性能优化。查看 [迁移指南](docs/migration.md) 了解升级详情。
+
+---
+
+## 📚 文档导航
+
+| 文档 | 说明 |
+|------|------|
+| [架构文档](docs/architecture.md) | 系统架构设计和模块说明 |
+| [迁移指南](docs/migration.md) | 从 v1.x 升级到 v2.0 |
+| [插件开发指南](docs/plugins.md) | 如何开发自定义插件 |
+| [缓存机制](docs/CACHE.md) | 分层缓存系统说明 |
+| [变更日志](CHANGELOG.md) | 版本更新记录 |
 
 ---
 
@@ -302,36 +318,58 @@ sudo python3 main.py --stock stock.zip --port port.zip --pack-type super --fs-ty
 
 ```text
 HyperOS-Port-Python/
-├── src/                       # 核心 Python 源代码
-│   ├── core/                  # 核心 ROM 处理逻辑
-│   │   ├── modifiers/         # ROM 修改系统
-│   │   │   ├── framework/     # 框架级补丁 (模块化)
-│   │   │   │   ├── patches.py     # Smali 补丁定义
-│   │   │   │   ├── base.py        # 框架修改器基类
-│   │   │   │   ├── tasks.py       # 具体修改任务
-│   │   │   │   └── modifier.py    # 主框架修改器
-│   │   │   └── plugins/       # APK 修改插件系统
-│   │   ├── rom/               # ROM 包处理 (模块化)
-│   │   │   ├── package.py     # RomPackage 类
-│   │   │   ├── extractors.py  # ROM 提取方法
-│   │   │   ├── utils.py       # ROM 工具函数
-│   │   │   └── constants.py   # 分区列表和枚举
-│   │   ├── packer.py          # 镜像重打包逻辑
-│   │   ├── context.py         # 移植上下文管理
-│   │   └── props.py           # 属性管理
-│   ├── modules/               # APK 级别修改模块
-│   └── utils/                 # Shell 和文件工具
-│       ├── lpunpack.py        # lpunpack 的 Python 实现，增强兼容性
-│       └── ...
-├── devices/                   # 特定机型的配置和 overlay
-├── otatools/                  # Android OTA 二进制文件 (bin, lib64)
-├── tests/                     # 单元测试
-├── out/                       # 最终生成的 ROM 输出目录
-├── tools/                     # 辅助工具
-├── requirements.txt           # 生产环境依赖
-├── requirements-dev.txt       # 开发环境依赖
-└── pyproject.toml            # Python 项目配置
+├── src/                           # 核心 Python 源代码
+│   ├── app/                       # 应用层（CLI、工作流）
+│   │   ├── cli.py                 # 命令行接口
+│   │   ├── bootstrap.py           # 应用引导
+│   │   ├── workflow.py            # 工作流管理
+│   │   ├── preflight.py           # 预检系统
+│   │   ├── snapshots.py           # 快照管理
+│   │   └── diff_report.py         # 差异报告
+│   ├── core/                      # 核心业务逻辑
+│   │   ├── context/               # 上下文管理（模块化）
+│   │   │   ├── device.py          # 设备上下文
+│   │   │   ├── pack.py            # 打包上下文
+│   │   │   ├── avb.py             # AVB 验证上下文
+│   │   │   └── workflow.py        # 工作流上下文
+│   │   ├── workflow/              # 工作流引擎
+│   │   │   ├── orchestrator.py    # 工作流编排器
+│   │   │   ├── phases.py          # 阶段定义
+│   │   │   └── pipeline.py        # 流水线管理
+│   │   ├── modifiers/             # ROM 修改系统
+│   │   │   ├── framework/         # 框架级补丁
+│   │   │   ├── plugins/           # 插件系统
+│   │   │   ├── unified_modifier.py # 统一修改器
+│   │   │   └── plugin_system.py   # 插件管理器
+│   │   ├── packing/               # 打包系统（模块化）
+│   │   │   ├── ota.py             # OTA 打包
+│   │   │   ├── super.py           # Super 打包
+│   │   │   └── avb.py             # AVB 处理
+│   │   ├── events/                # 事件系统
+│   │   │   ├── bus.py             # 事件总线
+│   │   │   ├── events.py          # 事件定义
+│   │   │   └── handlers.py        # 事件处理器
+│   │   ├── performance/           # 性能优化
+│   │   │   ├── cache.py           # 通用缓存
+│   │   │   ├── hasher.py          # 哈希计算
+│   │   │   └── incremental.py     # 增量处理
+│   │   ├── rom/                   # ROM 包处理
+│   │   ├── monitoring/            # 监控和日志
+│   │   └── ...                    # 其他核心模块
+│   └── utils/                     # 工具库
+│       ├── shell.py               # Shell 工具
+│       ├── smalikit.py            # Smali 工具
+│       └── ...                    # 其他工具
+├── devices/                       # 设备配置
+├── docs/                          # 文档
+├── tests/                         # 测试
+├── tools/                         # 辅助工具
+├── otatools/                      # OTA 工具
+├── pyproject.toml                 # 项目配置
+└── main.py                        # 入口文件
 ```
+
+> 详细的架构说明请参考 [架构文档](docs/architecture.md)。
 
 ---
 
