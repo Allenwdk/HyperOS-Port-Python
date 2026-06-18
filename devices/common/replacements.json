@@ -103,6 +103,14 @@
             "condition_port_os_version_incremental_gte": "OS3.0.0",
             "condition_base_android_version_gte": 15,
             "condition_base_android_version_lt": 16
+        },
+        {
+            "description": "Media Profiles Vendor Compatibility",
+            "id": "media_profiles_vendor_compat",
+            "type": "copy_file_internal",
+            "source": "vendor/etc/media_profiles.xml",
+            "target": "vendor/etc/media_profiles_vendor.xml",
+            "ensure_exists": false
         }
     ]
 }

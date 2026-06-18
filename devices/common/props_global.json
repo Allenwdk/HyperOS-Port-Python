@@ -20,6 +20,7 @@
         "ro.product.system.device": "{base_code}",
         "ro.product.board": "{base_code}",
         "ro.product.system_ext.device": "{base_code}",
+        "ro.video.product.device": "{base_code}",
         "ro.mi.os.version.incremental": "{rom_version}",
         "ro.build.version.incremental": "{rom_version}",
         "ro.product.build.version.incremental": "{rom_version}",
